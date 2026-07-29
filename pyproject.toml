@@ -1,0 +1,17 @@
+[project]
+name = "circuitvqa"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "schemdraw>=0.19",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.60",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["Src"]
