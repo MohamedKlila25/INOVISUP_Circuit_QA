@@ -1,0 +1,18 @@
+# Generated datasets
+Data_Preparation/_mini_dataset/
+
+# Temporary visualizations
+Data_Preparation/_tmp_visual/
+
+# Generated data
+Data/
+Outputs/
+Runs/
+Logs/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/

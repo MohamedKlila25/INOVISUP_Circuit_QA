@@ -1,0 +1,6 @@
+schemdraw>=0.19
+matplotlib>=3.5
+pillow>=9.0
+opencv-python>=4.5
+numpy>=1.21
+tqdm>=4.60
