@@ -16,11 +16,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from Common.Config import HybridConfig
-from Common.Schemas import DetectedComponent
+from Common.Schemas import CircuitGraph, DetectedComponent
 from Hybrid.Detection.Detector import Detector
 from Hybrid.Detection.Assign_Ids import assign_ids
 from Hybrid.Wires.Tracer import WireTracer, Net
 from Hybrid.Ocr.Reader import ComponentTextReader
+from Graph.Builder import from_pipeline
 
 
 class PipelineResult:
@@ -56,6 +57,21 @@ class PipelineResult:
             "nets": [sorted(n.component_ids()) for n in self.nets],
             "values": self.values(),
         }
+
+    def to_graph(self, circuit_id: str,
+                source_image: str | None = None) -> CircuitGraph:
+        """Assembles this pipeline's output into a CircuitGraph — the
+        pivot representation consumed by the LLM stage. This is what
+        ties detection + wires + OCR together into one typed object,
+        rather than leaving three separate structures for the caller
+        to reconcile by hand."""
+        return from_pipeline(
+            components=self.components,
+            nets=self.net_sets(),
+            values=self.values(),
+            circuit_id=circuit_id,
+            source_image=source_image,
+        )
 
 
 class HybridPipeline:

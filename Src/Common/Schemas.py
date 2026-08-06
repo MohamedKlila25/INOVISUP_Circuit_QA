@@ -131,3 +131,85 @@ class CircuitAnnotation(BaseModel):
                 if ref.get("comp_id") == comp_id and ref.get("terminal") == terminal:
                     return net.net_id
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Circuit graph — the pivot representation of the project
+# ═══════════════════════════════════════════════════════════════════
+
+class GraphNode(BaseModel):
+    """A component in the graph, with its OCR-read value."""
+    id: str
+    cls: ComponentClass | str = Field(alias="class")
+    value: str | None = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GraphEdge(BaseModel):
+    """An edge = two components sharing an electrical node."""
+    source: str
+    target: str
+    net_id: int | None = None
+
+
+class CircuitGraph(BaseModel):
+    """Circuit representation consumed by the LLM stage.
+
+    This is the pivot of the whole project: everything upstream
+    (detection, terminals, wires, OCR) exists to produce it, and
+    everything downstream consumes it. Giving it an explicit schema is
+    what makes a predicted graph directly comparable to the
+    ground-truth graph, term by term.
+    """
+    circuit_id: str
+    domain: Domain = Domain.ELECTRICAL
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    source_image: str | None = None
+
+    @model_validator(mode="after")
+    def _edges_reference_nodes(self) -> "CircuitGraph":
+        ids = {n.id for n in self.nodes}
+        for e in self.edges:
+            unknown = {e.source, e.target} - ids
+            if unknown:
+                raise ValueError(f"edge references unknown node: {sorted(unknown)}")
+        return self
+
+    def to_netlist(self) -> str:
+        """Compact textual netlist — THIS is what gets fed to the LLM,
+        not the raw JSON: it is shorter and much closer to what the
+        model has seen during pre-training (SPICE decks, textbook
+        circuit descriptions) than a nested JSON structure would be.
+        """
+        lines = [f"# circuit {self.circuit_id} ({self.domain.value})"]
+        for n in self.nodes:
+            value = f" = {n.value}" if n.value else ""
+            lines.append(f"{n.id}: {n.cls}{value}")
+        seen: set[tuple[str, str]] = set()
+        for e in self.edges:
+            key = tuple(sorted((e.source, e.target)))
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"{e.source} -- {e.target}")
+        return "\n".join(lines)
+
+    def component_count(self) -> dict[str, int]:
+        """Components per class — answers 'how many resistors?' exactly,
+        by graph traversal rather than by asking the LLM to count."""
+        counts: dict[str, int] = {}
+        for n in self.nodes:
+            counts[n.cls] = counts.get(n.cls, 0) + 1
+        return counts
+
+    def neighbours(self, comp_id: str) -> set[str]:
+        out: set[str] = set()
+        for e in self.edges:
+            if e.source == comp_id:
+                out.add(e.target)
+            elif e.target == comp_id:
+                out.add(e.source)
+        return out
