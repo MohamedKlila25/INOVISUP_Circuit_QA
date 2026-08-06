@@ -14,7 +14,7 @@ wire_tracer:
 ocr:
   enabled: true
   gpu: true
-  search_margin: 55
+  search_margin: 90
 data:
   dataset_dir: "Data"
   train_json: "Data/finetune/train_conversations.json"
