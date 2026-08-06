@@ -20,6 +20,11 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Src"))
 
 from Common.Config import HybridConfig
@@ -146,7 +151,9 @@ def main() -> None:
     all_mismatches: list[tuple[str, str, str | None, str]] = []
     # (circuit_stem, comp_id, predicted, expected)
 
-    for ann_path in ann_files:
+    iterator = tqdm(ann_files, desc="Évaluation") if tqdm else ann_files
+    n_done = 0
+    for ann_path in iterator:
         stem = ann_path.stem
         image_path = img_dir / f"{stem}.png"
         if not image_path.is_file():
@@ -179,6 +186,12 @@ def main() -> None:
         per_circuit_rows.append([
             stem, det.f1, conn.f1, val.exact_match_rate,
         ])
+
+        n_done += 1
+        if tqdm and n_done % 10 == 0:
+            running_val = sum(r["value_ocr"]["exact_match_rate"]
+                             for r in per_circuit_reports) / len(per_circuit_reports)
+            iterator.set_postfix(value_acc=f"{running_val:.3f}")
 
     n = len(per_circuit_reports)
     mean_det_f1 = sum(r["detection"]["f1"] for r in per_circuit_reports) / n
