@@ -109,6 +109,63 @@ def from_annotation(annotation_path: str | Path,
     )
 
 
+def from_pipeline_with_terminals(components: list[DetectedComponent],
+                                 raw_nets: list,
+                                 values: dict[str, str | None],
+                                 circuit_id: str,
+                                 source_image: str | None = None,
+                                 domain: Domain = Domain.ELECTRICAL) -> CircuitGraph:
+    """Builds a graph whose edges carry PIN NAMES, from the tracer's raw
+    nets (which keep each terminal's x/y) rather than from flattened
+    id-only nets.
+
+    `raw_nets` are Hybrid.Wires.Tracer Net objects, whose `.members`
+    are dicts of {comp_id, x, y}. Terminal names are derived from that
+    geometry — see Graph.Terminal_Naming.
+    """
+    from collections import defaultdict
+    from Graph.Terminal_Naming import name_terminal, orientation_from_terminals
+
+    comp_by_id = {c.id: c for c in components if c.id is not None}
+
+    nodes = [
+        GraphNode(id=c.id, **{"class": c.cls}, value=values.get(c.id),
+                  confidence=c.confidence)
+        for c in components if c.id is not None
+    ]
+
+    # Orientation needs ALL of a component's terminals, across every
+    # net — a terminal's name depends on where it sits relative to the
+    # component's other terminals, not just its own net.
+    positions: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for net in raw_nets:
+        for m in net.members:
+            positions[m["comp_id"]].append((m["x"], m["y"]))
+    orientations = {cid: orientation_from_terminals(pts)
+                   for cid, pts in positions.items()}
+
+    edges: list[GraphEdge] = []
+    for net in raw_nets:
+        members = [m for m in net.members if m["comp_id"] in comp_by_id]
+        named = []
+        for m in members:
+            c = comp_by_id[m["comp_id"]]
+            tname = name_terminal(c.cls, m["x"], m["y"], c.bbox,
+                                 orientations.get(m["comp_id"]))
+            named.append((m["comp_id"], tname))
+        for a in range(len(named)):
+            for b in range(a + 1, len(named)):
+                (id_a, t_a), (id_b, t_b) = named[a], named[b]
+                if id_a == id_b:
+                    continue
+                edges.append(GraphEdge(
+                    source=id_a, target=id_b, net_id=net.net_id,
+                    source_terminal=t_a, target_terminal=t_b))
+
+    return CircuitGraph(circuit_id=circuit_id, domain=domain, nodes=nodes,
+                       edges=edges, source_image=source_image)
+
+
 def graph_edit_similarity(predicted: CircuitGraph,
                           reference: CircuitGraph) -> dict:
     """Node/edge/value agreement between a predicted and a reference

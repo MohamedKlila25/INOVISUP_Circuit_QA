@@ -249,6 +249,106 @@ def build_tools(graph: CircuitGraph) -> list:
         except nx.NetworkXNoPath:
             return [f"aucun chemin trouvé entre {src} et {target}"]
 
+    def get_terminal_connections(component_id: str) -> dict:
+        """
+        Retourne, pour CHAQUE broche d'un composant, la liste des composants auxquels elle est reliée.
+
+        Args:
+            component_id: L'identifiant du composant dont on veut le détail broche par broche (ex: 'R1').
+        """
+        by_terminal: dict[str, set[str]] = defaultdict(set)
+        for e in graph.edges:
+            if e.source == component_id and e.source_terminal:
+                by_terminal[e.source_terminal].add(e.target)
+            elif e.target == component_id and e.target_terminal:
+                by_terminal[e.target_terminal].add(e.source)
+        return {t: sorted(v) for t, v in sorted(by_terminal.items())}
+
+    def get_diode_orientation(component_id: str) -> dict:
+        """
+        Retourne l'orientation d'une diode : à quoi son anode est reliée et à quoi sa cathode est reliée.
+
+        Args:
+            component_id: L'identifiant de la diode (ex: 'D1' ou 'DZ1').
+        """
+        cls = None
+        for n in graph.nodes:
+            if n.id == component_id:
+                cls = n.cls
+        if cls is None:
+            return {"erreur": f"composant '{component_id}' introuvable"}
+        if cls not in ("diode", "zener_diode", "led"):
+            return {"erreur": f"{component_id} n'est pas une diode (c'est un {cls})"}
+        conns = get_terminal_connections(component_id)
+        return {
+            "composant": component_id,
+            "type": _CLASS_LABEL_FR.get(cls, cls),
+            "anode_reliee_a": conns.get("anode", []),
+            "cathode_reliee_a": conns.get("cathode", []),
+        }
+
+    def find_unconnected_terminals() -> list:
+        """
+        Retourne la liste des broches non connectées (composants dont une patte est en l'air).
+        """
+        expected = {"resistor": 2, "capacitor": 2, "polarized_capacitor": 2,
+                   "inductor": 2, "diode": 2, "zener_diode": 2, "led": 2,
+                   "vsource": 2, "battery": 2, "switch": 2, "fuse": 2,
+                   "npn_transistor": 3, "pnp_transistor": 3, "opamp": 3}
+        seen: dict[str, set[str]] = defaultdict(set)
+        for e in graph.edges:
+            if e.source_terminal:
+                seen[e.source].add(e.source_terminal)
+            if e.target_terminal:
+                seen[e.target].add(e.target_terminal)
+        out = []
+        for n in graph.nodes:
+            need = expected.get(n.cls)
+            if need is None:
+                continue
+            got = len(seen.get(n.id, set()))
+            if got < need:
+                out.append(f"{n.id} ({_CLASS_LABEL_FR.get(n.cls, n.cls)}) : "
+                          f"{got}/{need} broches connectees")
+        return out
+
+    def get_bill_of_materials() -> list:
+        """
+        Retourne la nomenclature (liste d'achat) du circuit : chaque type de composant avec sa quantite et ses valeurs.
+        """
+        by_type: dict[str, list[str]] = defaultdict(list)
+        for n in graph.nodes:
+            if n.cls == "ground":
+                continue
+            by_type[_CLASS_LABEL_FR.get(n.cls, n.cls)].append(n.value or "valeur inconnue")
+        return [f"{len(vals)}x {cls} ({', '.join(vals)})"
+                for cls, vals in sorted(by_type.items())]
+
+    def find_parallel_components() -> list:
+        """
+        Retourne les paires de composants montes en parallele (qui partagent leurs DEUX noeuds electriques).
+        """
+        nets_of: dict[str, set[int]] = defaultdict(set)
+        for e in graph.edges:
+            if e.net_id is None:
+                continue
+            nets_of[e.source].add(e.net_id)
+            nets_of[e.target].add(e.net_id)
+        ids = sorted(nets_of)
+        out = []
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                if len(nets_of[a] & nets_of[b]) >= 2:
+                    out.append(f"{a} et {b}")
+        return out
+
+    def count_electrical_nodes() -> int:
+        """
+        Retourne le nombre de noeuds electriques distincts (points de connexion) du circuit.
+        """
+        return len({e.net_id for e in graph.edges if e.net_id is not None})
+
+
     return [
         count_total_components, count_components_by_type,
         get_component_class, get_component_value, get_neighbours,
@@ -256,4 +356,7 @@ def build_tools(graph: CircuitGraph) -> list:
         get_circuit_topology, find_floating_components,
         get_first_component, get_last_component, get_signal_path,
         get_components_directly_on_source,
+        get_terminal_connections, get_diode_orientation,
+        find_unconnected_terminals, get_bill_of_materials,
+        find_parallel_components, count_electrical_nodes,
     ]

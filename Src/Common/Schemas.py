@@ -148,10 +148,20 @@ class GraphNode(BaseModel):
 
 
 class GraphEdge(BaseModel):
-    """An edge = two components sharing an electrical node."""
+    """An edge = two components sharing an electrical node.
+
+    `source_terminal` / `target_terminal` carry WHICH pin of each
+    component sits on that node ("gauche"/"droite"/"haut"/"bas", or a
+    semantic name like "anode"/"cathode"/"base"). Component-level edges
+    alone cannot answer per-pin questions ("what is R1's left pin wired
+    to?"), nor disambiguate which side of a source a component sits on.
+    Optional so that graphs built without terminal data still validate.
+    """
     source: str
     target: str
     net_id: int | None = None
+    source_terminal: str | None = None
+    target_terminal: str | None = None
 
 
 class CircuitGraph(BaseModel):

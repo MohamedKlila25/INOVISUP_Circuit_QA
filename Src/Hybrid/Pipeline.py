@@ -59,12 +59,25 @@ class PipelineResult:
         }
 
     def to_graph(self, circuit_id: str,
-                source_image: str | None = None) -> CircuitGraph:
+                source_image: str | None = None,
+                with_terminals: bool = True) -> CircuitGraph:
         """Assembles this pipeline's output into a CircuitGraph — the
-        pivot representation consumed by the LLM stage. This is what
-        ties detection + wires + OCR together into one typed object,
-        rather than leaving three separate structures for the caller
-        to reconcile by hand."""
+        pivot representation consumed by the LLM stage.
+
+        `with_terminals=True` (default) keeps WHICH PIN of each
+        component sits on each node, which per-pin questions need
+        ("what is R1's left pin wired to?", "which way is D1 facing?").
+        Set it False for the plain component-level graph.
+        """
+        if with_terminals:
+            from Graph.Builder import from_pipeline_with_terminals
+            return from_pipeline_with_terminals(
+                components=self.components,
+                raw_nets=self.nets,
+                values=self.values(),
+                circuit_id=circuit_id,
+                source_image=source_image,
+            )
         return from_pipeline(
             components=self.components,
             nets=self.net_sets(),

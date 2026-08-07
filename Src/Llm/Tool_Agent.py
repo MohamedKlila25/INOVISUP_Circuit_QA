@@ -52,16 +52,26 @@ _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 # unanswered. Matching a few unambiguous keywords is far better than
 # returning the model's truncated musing — and it stays deterministic.
 _KEYWORD_TOOLS: list[tuple[tuple[str, ...], str]] = [
-    (("combien", "nombre", "total"), "count_total_components"),
+    # ORDER MATTERS: matched top-down, first hit wins. Specific,
+    # multi-word phrases must come BEFORE broad single words —
+    # measured: "quels composants sont en parallèle ?" was being
+    # captured by the topology rule (which also lists "parallèle"),
+    # and "combien de nœuds électriques" by the generic "combien" rule.
+    (("broche", "patte", "pin"), "get_terminal_connections"),
+    (("anode", "cathode", "orientation", "polarité", "quel sens", "sens est"), "get_diode_orientation"),
+    (("nomenclature", "liste d'achat", "bom", "matériel"), "get_bill_of_materials"),
+    (("en parallèle", "montés en parallèle"), "find_parallel_components"),
+    (("nœud", "noeud"), "count_electrical_nodes"),
+    (("flottant", "non connecté", "en l'air", "isolé"), "find_unconnected_terminals"),
+    (("série", "parallèle", "mixte", "topologie", "dérivation"), "get_circuit_topology"),
     (("type", "types", "quantité", "catégorie"), "count_components_by_type"),
     (("valeur",), "get_component_value"),
     (("voisin", "connecté à", "relié à"), "get_neighbours"),
     (("masse", "ground"), "list_components_connected_to_ground"),
-    (("série", "parallèle", "mixte", "topologie"), "get_circuit_topology"),
-    (("flottant", "non connecté", "isolé", "en l'air"), "find_floating_components"),
     (("premier",), "get_first_component"),
     (("dernier",), "get_last_component"),
     (("chemin", "parcours", "trajet"), "get_signal_path"),
+    (("combien", "nombre", "total"), "count_total_components"),
 ]
 
 _COMPONENT_ID_RE = re.compile(r"\b([A-Z]{1,3}\d{1,3})\b")
@@ -77,7 +87,8 @@ def guess_tool_from_question(question: str, tools_by_name: dict) -> dict | None:
             args = {}
             # tools that need a component id: extract it from the question
             if tool_name in ("get_component_value", "get_component_class",
-                            "get_neighbours", "is_connected_to_ground"):
+                            "get_neighbours", "is_connected_to_ground",
+                            "get_terminal_connections", "get_diode_orientation"):
                 m = _COMPONENT_ID_RE.search(question)
                 if not m:
                     continue   # can't call it without an id — try next rule
@@ -184,7 +195,7 @@ class ToolAgent:
         # component types with their values) needs far more than the 32
         # tokens that suffice for "5". Measured failure: a multi-type
         # breakdown got cut off mid-sentence at 32 tokens.
-        rephrase_budget = max(1024, min(256, len(tool_result) // 2 + 48))
+        rephrase_budget = max(64, min(256, len(tool_result) // 2 + 48))
         final_answer = self._generate_raw(text2, max_new_tokens=rephrase_budget)
 
         return {"tool_call": call, "tool_result": tool_result,
